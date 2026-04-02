@@ -19,6 +19,9 @@ if uploaded_file:
     df['QuotationDate'] = pd.to_datetime(df['QuotationDate'], errors='coerce')
     df['PartsOrderDate'] = pd.to_datetime(df['PartsOrderDate'], errors='coerce')
 
+    # Remove null discount values
+    df = df[df['PartsDisc. %'].notna()]
+
     # ---------------- KPI SECTION ----------------
     total_enquiries = df['EnquiryNumber'].nunique()
     total_quotes = df['QuotationNumber'].nunique()
@@ -93,7 +96,7 @@ if uploaded_file:
                        title="Top 10 Parts by Revenue")
     st.plotly_chart(fig_parts, use_container_width=True)
 
-    # ---------------- SIMPLE SALES REP PERFORMANCE ----------------
+    # ---------------- SALES REP PERFORMANCE ----------------
     rep_perf = df.groupby('AfterMarketSalesRep').agg({
         'PartsOrderAmount': 'sum',
         'ConvertedFlag': 'mean'
@@ -119,18 +122,21 @@ if uploaded_file:
     )
     st.plotly_chart(fig_rep_conv, use_container_width=True)
 
-    # ---------------- SIMPLE DISCOUNT VS CONVERSION ----------------
-    disc_bins = pd.cut(df['PartsDisc. %'], bins=[0,10,20,30,40,50])
+    # ---------------- FIXED DISCOUNT VS CONVERSION ----------------
+    bins = [0, 10, 20, 30, 40, 50]
+    labels = ["0-10%", "10-20%", "20-30%", "30-40%", "40-50%"]
 
-    disc_analysis = df.groupby(disc_bins)['ConvertedFlag'].mean().reset_index()
+    df['DiscountRange'] = pd.cut(df['PartsDisc. %'], bins=bins, labels=labels)
+
+    disc_analysis = df.groupby('DiscountRange')['ConvertedFlag'].mean().reset_index()
     disc_analysis['ConvertedFlag'] *= 100
 
     fig_disc = px.bar(
         disc_analysis,
-        x='PartsDisc. %',
+        x='DiscountRange',
         y='ConvertedFlag',
         title="Conversion % by Discount Range",
-        labels={'ConvertedFlag': 'Conversion %', 'PartsDisc. %': 'Discount Range'}
+        labels={'ConvertedFlag': 'Conversion %', 'DiscountRange': 'Discount Range'}
     )
     st.plotly_chart(fig_disc, use_container_width=True)
 
