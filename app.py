@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="AI Sales Dashboard", layout="wide")
+st.set_page_config(page_title="Sales Dashboard", layout="wide")
 
-st.title("🚀 AI-Powered Quotation Analytics Dashboard")
+st.title("📊 Quotation & Sales Dashboard")
 
 # ---------------- FILE UPLOAD ----------------
 uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
@@ -93,30 +93,58 @@ if uploaded_file:
                        title="Top 10 Parts by Revenue")
     st.plotly_chart(fig_parts, use_container_width=True)
 
-    # ---------------- SALES REP PERFORMANCE ----------------
+    # ---------------- SIMPLE SALES REP PERFORMANCE ----------------
     rep_perf = df.groupby('AfterMarketSalesRep').agg({
         'PartsOrderAmount': 'sum',
-        'PartsDisc. %': 'mean',
         'ConvertedFlag': 'mean'
     }).reset_index()
 
     rep_perf['ConvertedFlag'] *= 100
 
-    fig_rep = px.scatter(rep_perf,
-                         x='PartsDisc. %',
-                         y='PartsOrderAmount',
-                         size='ConvertedFlag',
-                         color='AfterMarketSalesRep',
-                         title="Sales Rep Performance")
-    st.plotly_chart(fig_rep, use_container_width=True)
+    fig_rep_rev = px.bar(
+        rep_perf.sort_values(by='PartsOrderAmount', ascending=False),
+        x='AfterMarketSalesRep',
+        y='PartsOrderAmount',
+        title="Sales Rep Revenue",
+        text_auto=True
+    )
+    st.plotly_chart(fig_rep_rev, use_container_width=True)
 
-    # ---------------- DISCOUNT ANALYSIS ----------------
-    fig_disc = px.scatter(df,
-                          x='PartsDisc. %',
-                          y='PartsOrderAmount',
-                          color='ConvertedFlag',
-                          title="Discount vs Conversion")
+    fig_rep_conv = px.bar(
+        rep_perf,
+        x='AfterMarketSalesRep',
+        y='ConvertedFlag',
+        title="Sales Rep Conversion %",
+        labels={'ConvertedFlag': 'Conversion %'}
+    )
+    st.plotly_chart(fig_rep_conv, use_container_width=True)
+
+    # ---------------- SIMPLE DISCOUNT VS CONVERSION ----------------
+    disc_bins = pd.cut(df['PartsDisc. %'], bins=[0,10,20,30,40,50])
+
+    disc_analysis = df.groupby(disc_bins)['ConvertedFlag'].mean().reset_index()
+    disc_analysis['ConvertedFlag'] *= 100
+
+    fig_disc = px.bar(
+        disc_analysis,
+        x='PartsDisc. %',
+        y='ConvertedFlag',
+        title="Conversion % by Discount Range",
+        labels={'ConvertedFlag': 'Conversion %', 'PartsDisc. %': 'Discount Range'}
+    )
     st.plotly_chart(fig_disc, use_container_width=True)
+
+    # ---------------- SIMPLE BRANCH vs CATEGORY ----------------
+    branch_category = df.groupby(['DealerBranchName', 'PartsCategory'])['PartsOrderAmount'].sum().reset_index()
+
+    fig_branch_cat = px.bar(
+        branch_category,
+        x='DealerBranchName',
+        y='PartsOrderAmount',
+        color='PartsCategory',
+        title="Branch-wise Category Sales"
+    )
+    st.plotly_chart(fig_branch_cat, use_container_width=True)
 
     # ---------------- LOSS ANALYSIS ----------------
     loss_df = df[df['ConvertedFlag'] == 0]
@@ -125,10 +153,8 @@ if uploaded_file:
         loss_reason = loss_df['ReasonCode'].value_counts().reset_index()
         loss_reason.columns = ['Reason', 'Count']
 
-        fig_loss = px.pie(loss_reason,
-                          names='Reason',
-                          values='Count',
-                          title="Loss Reasons")
+        fig_loss = px.bar(loss_reason, x='Reason', y='Count',
+                          title="Top Loss Reasons")
         st.plotly_chart(fig_loss, use_container_width=True)
 
     # ---------------- CONVERSION TIME ----------------
@@ -137,38 +163,28 @@ if uploaded_file:
 
     st.metric("Avg Conversion Days", f"{avg_days:.1f} days")
 
-    # ---------------- HEATMAP ----------------
-    pivot = df.pivot_table(values='PartsOrderAmount',
-                           index='DealerBranchName',
-                           columns='PartsCategory',
-                           aggfunc='sum',
-                           fill_value=0)
-
-    fig_heat = px.imshow(pivot, title="Branch vs Category Heatmap")
-    st.plotly_chart(fig_heat, use_container_width=True)
-
     # ---------------- AI INSIGHTS ----------------
-    st.subheader("🤖 AI Insights")
+    st.subheader("🤖 Key Insights")
 
     if conversion_rate < 30:
-        st.warning("⚠️ Low conversion rate. Improve pricing or follow-ups.")
+        st.warning("Low conversion rate. Improve follow-ups or pricing.")
 
     if df['PartsDisc. %'].mean() > 20:
-        st.info("💸 High discounts detected. Check margin impact.")
+        st.info("High discounts detected. Check margin impact.")
 
     if realization_avg < 70:
-        st.warning("⚠️ Low revenue realization. Discounts may be too high.")
+        st.warning("Low revenue realization. Discounts may be too high.")
 
     slow_conv = df[df['ConversionDays'] > 10]
     if not slow_conv.empty:
-        st.info("⏳ Slow conversions detected. Improve response time.")
+        st.info("Some deals take too long to convert.")
 
     high_disc_low_conv = df[(df['PartsDisc. %'] > 25) & (df['ConvertedFlag'] == 0)]
     if len(high_disc_low_conv) > 0:
-        st.error("❌ High discounts are NOT improving conversion!")
+        st.error("High discounts are not improving conversion!")
 
     top_category = category_sales.sort_values(by='PartsOrderAmount', ascending=False).iloc[0]
-    st.success(f"🏆 Top category: {top_category['PartsCategory']}")
+    st.success(f"Top category: {top_category['PartsCategory']}")
 
 else:
-    st.info("📂 Please upload an Excel file to begin.")
+    st.info("Please upload an Excel file to start analysis.")
