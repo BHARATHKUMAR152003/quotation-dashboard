@@ -2,87 +2,106 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="Quotation Dashboard", layout="wide")
+st.set_page_config(page_title="AI Sales Dashboard", layout="wide")
 
-st.title("📊 Automated Quotation Dashboard")
+st.title("🚀 AI-Powered Quotation Analytics")
 
-# Upload file
-uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload Excel", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-
-    # ---------- DATA CLEANING ----------
     df.columns = df.columns.str.strip()
 
-    # Convert dates
+    # -------- DATA PREP --------
+    df['ConvertedFlag'] = df['Converted?'].astype(str).str.lower().eq('yes').astype(int)
     df['QuotationDate'] = pd.to_datetime(df['QuotationDate'], errors='coerce')
-    df['EnquiryDate'] = pd.to_datetime(df['EnquiryDate'], errors='coerce')
 
-    # Conversion flag
-    df['ConvertedFlag'] = df['Converted?'].apply(lambda x: 1 if str(x).lower() == 'yes' else 0)
-
-    # ---------- KPI SECTION ----------
-    total_enquiries = df['EnquiryNumber'].nunique()
+    # -------- KPI --------
     total_quotes = df['QuotationNumber'].nunique()
-    total_converted = df['ConvertedFlag'].sum()
-    conversion_rate = (total_converted / total_quotes) * 100 if total_quotes > 0 else 0
+    total_orders = df['ConvertedFlag'].sum()
+    conversion_rate = (total_orders / total_quotes) * 100 if total_quotes else 0
+
     total_quote_value = df['FinalQuotationAmount'].sum()
     total_order_value = df['PartsOrderAmount'].sum()
+    leakage = total_quote_value - total_order_value
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    col1.metric("Enquiries", total_enquiries)
-    col2.metric("Quotations", total_quotes)
-    col3.metric("Conversions", total_converted)
-    col4.metric("Conversion %", f"{conversion_rate:.2f}%")
-    col5.metric("Revenue", f"{total_order_value:,.0f}")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Quotations", total_quotes)
+    col2.metric("Orders", total_orders)
+    col3.metric("Conversion %", f"{conversion_rate:.2f}%")
+    col4.metric("Revenue Leakage", f"{leakage:,.0f}")
 
     st.markdown("---")
 
-    # ---------- FILTERS ----------
-    branch = st.selectbox("Select Branch", ["All"] + list(df['DealerBranchName'].dropna().unique()))
+    # -------- FILTERS --------
+    col1, col2 = st.columns(2)
 
-    if branch != "All":
-        df = df[df['DealerBranchName'] == branch]
+    branch = col1.multiselect("Branch", df['DealerBranchName'].dropna().unique())
+    category = col2.multiselect("Category", df['PartsCategory'].dropna().unique())
 
-    # ---------- FUNNEL ----------
-    funnel_data = pd.DataFrame({
-        "Stage": ["Enquiries", "Quotations", "Conversions"],
-        "Count": [total_enquiries, total_quotes, total_converted]
+    if branch:
+        df = df[df['DealerBranchName'].isin(branch)]
+    if category:
+        df = df[df['PartsCategory'].isin(category)]
+
+    # -------- FUNNEL --------
+    funnel_df = pd.DataFrame({
+        "Stage": ["Quotation", "Converted"],
+        "Count": [total_quotes, total_orders]
     })
-
-    fig_funnel = px.funnel(funnel_data, x="Count", y="Stage")
+    fig_funnel = px.funnel(funnel_df, x="Count", y="Stage", title="Sales Funnel")
     st.plotly_chart(fig_funnel, use_container_width=True)
 
-    # ---------- CATEGORY SALES ----------
-    category_sales = df.groupby('PartsCategory')['PartsOrderAmount'].sum().reset_index()
+    # -------- SALES REP PERFORMANCE --------
+    rep_perf = df.groupby('AfterMarketSalesRep').agg({
+        'PartsOrderAmount': 'sum',
+        'ConvertedFlag': 'mean'
+    }).reset_index()
 
-    fig_cat = px.bar(category_sales, x='PartsCategory', y='PartsOrderAmount', title="Category Sales")
-    st.plotly_chart(fig_cat, use_container_width=True)
+    rep_perf['ConvertedFlag'] *= 100
 
-    # ---------- DEALER PERFORMANCE ----------
-    dealer_perf = df.groupby('DealerBranchName')['PartsOrderAmount'].sum().reset_index()
+    fig_rep = px.bar(rep_perf, x='AfterMarketSalesRep',
+                     y='PartsOrderAmount',
+                     title="Sales Rep Revenue")
+    st.plotly_chart(fig_rep, use_container_width=True)
 
-    fig_dealer = px.bar(dealer_perf, x='DealerBranchName', y='PartsOrderAmount', title="Dealer Performance")
-    st.plotly_chart(fig_dealer, use_container_width=True)
+    # -------- DISCOUNT VS CONVERSION --------
+    fig_disc = px.scatter(df,
+                         x='PartsDisc. %',
+                         y='PartsOrderAmount',
+                         color='ConvertedFlag',
+                         title="Discount vs Conversion")
+    st.plotly_chart(fig_disc, use_container_width=True)
 
-    # ---------- LOSS REASON ----------
-    loss_data = df[df['ConvertedFlag'] == 0]
-    loss_reason = loss_data['ReasonCode'].value_counts().reset_index()
-    loss_reason.columns = ['Reason', 'Count']
+    # -------- LOSS ANALYSIS --------
+    loss_df = df[df['ConvertedFlag'] == 0]
 
-    fig_loss = px.pie(loss_reason, names='Reason', values='Count', title="Loss Reasons")
-    st.plotly_chart(fig_loss, use_container_width=True)
+    if not loss_df.empty:
+        loss_reason = loss_df['ReasonCode'].value_counts().reset_index()
+        loss_reason.columns = ['Reason', 'Count']
 
-    # ---------- AI INSIGHTS ----------
-    st.markdown("## 🤖 AI Insights")
+        fig_loss = px.pie(loss_reason,
+                          names='Reason',
+                          values='Count',
+                          title="Loss Reasons")
+        st.plotly_chart(fig_loss, use_container_width=True)
+
+    # -------- AI INSIGHTS --------
+    st.subheader("🤖 AI Insights")
+
+    insights = []
 
     if conversion_rate < 30:
-        st.warning("Low conversion rate. Consider reducing pricing or improving follow-ups.")
+        insights.append("⚠️ Low conversion rate detected. Improve follow-ups or pricing.")
 
     if df['PartsDisc. %'].mean() > 20:
-        st.info("High discounts detected. Check margin impact.")
+        insights.append("💸 High discounts impacting margins.")
 
-    top_category = category_sales.sort_values(by='PartsOrderAmount', ascending=False).iloc[0]
-    st.success(f"Top selling category is {top_category['PartsCategory']}")
+    top_rep = rep_perf.sort_values(by='PartsOrderAmount', ascending=False).iloc[0]
+    insights.append(f"🏆 Top performer: {top_rep['AfterMarketSalesRep']}")
+
+    high_loss = loss_df['ReasonCode'].value_counts().idxmax() if not loss_df.empty else "N/A"
+    insights.append(f"❌ Main loss reason: {high_loss}")
+
+    for i in insights:
+        st.write(i)
